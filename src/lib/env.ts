@@ -1,10 +1,10 @@
-function hasEnvValue(key: keyof NodeJS.ProcessEnv): boolean {
+function hasEnvValue(key: string): boolean {
   const value = process.env[key];
 
   return typeof value === "string" && value.length > 0;
 }
 
-function readEnvValue(key: keyof NodeJS.ProcessEnv): string {
+function readEnvValue(key: string): string {
   const value = process.env[key];
 
   if (!value) {
@@ -14,25 +14,24 @@ function readEnvValue(key: keyof NodeJS.ProcessEnv): string {
   return value;
 }
 
-export function getSupabaseEnvStatus() {
-  return {
-    url: hasEnvValue("NEXT_PUBLIC_SUPABASE_URL"),
-    publishableKey: hasEnvValue("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"),
-    serviceRoleKey: hasEnvValue("SUPABASE_SERVICE_ROLE_KEY"),
-  };
+function resolveAnonKey(): string | undefined {
+  return process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 }
 
 export function hasSupabaseBrowserEnv(): boolean {
-  const { url, publishableKey } = getSupabaseEnvStatus();
-
-  return url && publishableKey;
+  return hasEnvValue("NEXT_PUBLIC_SUPABASE_URL") && !!resolveAnonKey();
 }
 
 export function getSupabaseBrowserEnv() {
-  return {
-    url: readEnvValue("NEXT_PUBLIC_SUPABASE_URL"),
-    publishableKey: readEnvValue("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"),
-  };
+  const url = readEnvValue("NEXT_PUBLIC_SUPABASE_URL");
+  const publishableKey = resolveAnonKey();
+
+  if (!publishableKey) {
+    throw new Error("Missing environment variable: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
+
+  return { url, publishableKey };
 }
 
 export function getSupabaseServiceEnv() {
@@ -41,4 +40,3 @@ export function getSupabaseServiceEnv() {
     serviceRoleKey: readEnvValue("SUPABASE_SERVICE_ROLE_KEY"),
   };
 }
-

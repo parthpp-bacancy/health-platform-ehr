@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { getRoleHomePath, normalizeRole } from "@/lib/auth/roles";
+import { hasSupabaseBrowserEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { signInSchema, signUpSchema } from "@/lib/validations/health";
 
@@ -15,6 +16,10 @@ export async function signInAction(
   _previousState: FormActionState,
   formData: FormData
 ): Promise<FormActionState> {
+  if (!hasSupabaseBrowserEnv()) {
+    return { error: "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in your environment." };
+  }
+
   const parsed = signInSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
@@ -39,6 +44,10 @@ export async function signUpAction(
   _previousState: FormActionState,
   formData: FormData
 ): Promise<FormActionState> {
+  if (!hasSupabaseBrowserEnv()) {
+    return { error: "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in your environment." };
+  }
+
   const parsed = signUpSchema.safeParse({
     firstName: formData.get("firstName"),
     lastName: formData.get("lastName"),
@@ -71,4 +80,3 @@ export async function signUpAction(
 
   return { success: "Account created. Sign in to continue into the patient portal." };
 }
-

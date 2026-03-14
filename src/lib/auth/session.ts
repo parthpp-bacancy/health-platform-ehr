@@ -1,7 +1,8 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { redirect } from "next/navigation";
 
 import { hasAnyRole, normalizeRole, getRoleHomePath } from "@/lib/auth/roles";
+import { hasSupabaseBrowserEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { type UserRole } from "@/lib/demo/types";
 
@@ -18,6 +19,10 @@ function readString(value: unknown) {
 }
 
 export async function getCurrentSession(): Promise<AppSession | null> {
+  if (!hasSupabaseBrowserEnv()) {
+    return null;
+  }
+
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
   const user = data.user;

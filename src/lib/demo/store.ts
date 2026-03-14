@@ -4,28 +4,39 @@ import path from "node:path";
 import { buildDemoDatabase } from "@/lib/demo/seed";
 import { type DemoDatabase } from "@/lib/demo/types";
 
-const dataDirectory = path.join(process.cwd(), "data", "runtime");
-const dataFile = path.join(dataDirectory, "demo-db.json");
+const isVercel = process.env.VERCEL === "1";
+const baseDir = isVercel ? "/tmp" : path.join(process.cwd(), "data", "runtime");
+const dataFile = path.join(baseDir, "demo-db.json");
+
+let memoryCache: DemoDatabase | null = null;
 
 async function ensureDemoDatabase() {
-  await mkdir(dataDirectory, { recursive: true });
+  if (memoryCache) return;
+
+  await mkdir(baseDir, { recursive: true });
 
   try {
-    await readFile(dataFile, "utf8");
+    const contents = await readFile(dataFile, "utf8");
+    memoryCache = JSON.parse(contents) as DemoDatabase;
   } catch {
-    await writeFile(dataFile, JSON.stringify(buildDemoDatabase(), null, 2), "utf8");
+    memoryCache = buildDemoDatabase();
+    await writeFile(dataFile, JSON.stringify(memoryCache, null, 2), "utf8");
   }
 }
 
 export async function readDemoDatabase(): Promise<DemoDatabase> {
   await ensureDemoDatabase();
-  const contents = await readFile(dataFile, "utf8");
-  return JSON.parse(contents) as DemoDatabase;
+  return memoryCache!;
 }
 
 export async function writeDemoDatabase(database: DemoDatabase) {
-  await ensureDemoDatabase();
-  await writeFile(dataFile, JSON.stringify(database, null, 2), "utf8");
+  memoryCache = database;
+  try {
+    await mkdir(baseDir, { recursive: true });
+    await writeFile(dataFile, JSON.stringify(database, null, 2), "utf8");
+  } catch {
+    // Filesystem write may fail in some serverless environments; in-memory cache still works for the request lifecycle
+  }
 }
 
 export async function mutateDemoDatabase<T>(
@@ -36,4 +47,3 @@ export async function mutateDemoDatabase<T>(
   await writeDemoDatabase(database);
   return result;
 }
-

@@ -1,220 +1,125 @@
-# SCHEMA
+﻿# SCHEMA
 
-## Schema Direction
+## Migration Status
+Primary migration file:
+- `supabase/migrations/20260314162000_initial_mvp.sql`
+
+Current status:
+- SQL migration is complete and ready to apply.
+- Remote apply is blocked in this environment because there is no linked Supabase CLI session, personal access token, or direct Postgres connection string.
+- `scripts/seed-demo.ts` can already create demo auth users in Supabase Auth.
+- Relational seed insertion is intentionally deferred until the migration is applied remotely.
+
+## Schema Shape
 Database: Supabase Postgres
-Access model: organization-scoped multi-tenancy with RLS on every table.
+Access model: single-organization MVP with tenant-ready `organization_id` scoping and row-level security on protected tables.
 
-## Foundation Principles
-- Every tenant-bound table includes `organization_id`
-- Every table includes `created_at` and `updated_at`
-- Sensitive actions are logged to `audit_logs`
-- Access is enforced with RLS, not only application logic
-- Public/client code never uses service-role credentials
+### Enums
+- `app_role`: `admin`, `provider`, `care_coordinator`, `patient`
+- `appointment_status`: `scheduled`, `confirmed`, `completed`, `cancelled`, `no_show`
+- `encounter_status`: `in_progress`, `completed`, `cancelled`
+- `intake_status`: `invited`, `in_progress`, `completed`
+- `consent_status`: `pending`, `acknowledged`, `revoked`
+- `care_plan_status`: `draft`, `active`, `completed`, `archived`
+- `thread_status`: `open`, `closed`
 
-## Initial Tables (Planned)
+### Core Organization and Identity Tables
+- `organizations`
+- `profiles`
+- `staff_roles`
+- `providers`
 
-### organizations
-Top-level tenant record for each clinic or healthcare organization.
-- id
-- name
-- slug
-- status
-- created_at
-- updated_at
+### Patient and Intake Tables
+- `patients`
+- `patient_contacts`
+- `patient_insurance`
+- `patient_consents`
+- `allergies`
+- `medications`
 
-### organization_settings
-Org-level preferences and defaults.
-- id
-- organization_id
-- timezone
-- branding_json
-- scheduling_json
-- created_at
-- updated_at
+### Scheduling Tables
+- `provider_availability`
+- `appointments`
 
-### memberships
-Maps authenticated users into organizations and roles.
-- id
-- organization_id
-- user_id
-- role
-- status
-- created_at
-- updated_at
+### Clinical Tables
+- `encounters`
+- `soap_notes`
+- `diagnoses`
+- `vital_signs`
+- `care_plans`
+- `documents`
 
-### patient_profiles
-Patient identity and demographic record within an organization.
-- id
-- organization_id
-- user_id
-- first_name
-- last_name
-- date_of_birth
-- phone
-- email
-- status
-- created_at
-- updated_at
+### Messaging and Compliance Tables
+- `message_threads`
+- `messages`
+- `audit_logs`
 
-### provider_profiles
-Provider/staff profile for scheduling and care delivery.
-- id
-- organization_id
-- user_id
-- first_name
-- last_name
-- title
-- specialty
-- status
-- created_at
-- updated_at
+## Helper Functions and Triggers
+Helper functions in the migration:
+- `set_updated_at()`
+- `current_organization_id()`
+- `has_role(target_org_id uuid, allowed_roles app_role[])`
+- `patient_owned_by_current_user(target_org_id uuid, target_patient_id uuid)`
+- `handle_auth_user_sync()`
 
-### appointment_types
-Defines appointment offerings.
-- id
-- organization_id
-- name
-- duration_minutes
-- is_virtual
-- is_active
-- created_at
-- updated_at
+Triggers in the migration:
+- `on_auth_user_synced` on `auth.users` to keep `profiles`, `staff_roles`, `providers`, and `patients` aligned with auth metadata
+- `*_set_updated_at` triggers across mutable tables to maintain `updated_at`
 
-### provider_availability
-Availability windows used for booking.
-- id
-- organization_id
-- provider_profile_id
-- weekday
-- start_time
-- end_time
-- timezone
-- created_at
-- updated_at
+Default bootstrap data:
+- inserts `Luma Virtual Care` as the default organization if it does not already exist
 
-### appointments
-Patient-provider booking records.
-- id
-- organization_id
-- patient_profile_id
-- provider_profile_id
-- appointment_type_id
-- starts_at
-- ends_at
-- status
-- video_room_ref
-- created_by
-- created_at
-- updated_at
+## RLS Model
+RLS is enabled on all protected application tables.
 
-### encounters
-Clinical visit record, usually linked to an appointment.
-- id
-- organization_id
-- appointment_id
-- patient_profile_id
-- provider_profile_id
-- status
-- started_at
-- completed_at
-- created_at
-- updated_at
+Policy posture:
+- organization members can read org-scoped records according to role
+- patients can only access records tied to their own patient record
+- staff roles (`admin`, `provider`, `care_coordinator`) can access org-scoped operational records
+- provider-only writes are enforced for SOAP notes
+- admin-only visibility is enforced for audit log reads
+- staff inserts are allowed for audit log writes
 
-### clinical_notes
-Structured or semi-structured note linked to an encounter.
-- id
-- organization_id
-- encounter_id
-- note_type
-- content_json
-- signed_at
-- created_by
-- created_at
-- updated_at
+Important policy helpers:
+- policies resolve org membership through `profiles.organization_id`
+- role checks use `staff_roles`
+- patient self-access uses `patient_owned_by_current_user()`
 
-### conversations
-Messaging container for secure communication.
-- id
-- organization_id
-- patient_profile_id
-- subject
-- created_at
-- updated_at
+## Indexes
+Key indexes included:
+- `idx_profiles_org`
+- `idx_staff_roles_org_role`
+- `idx_providers_org`
+- `idx_patients_org`
+- `idx_appointments_org_start`
+- `idx_encounters_patient`
+- `idx_threads_patient`
+- `idx_messages_thread_sent`
+- `idx_audit_logs_org_created`
 
-### conversation_members
-Tracks which users can access a conversation.
-- id
-- conversation_id
-- user_id
-- member_role
-- created_at
+## Auth and Seed Notes
+`handle_auth_user_sync()` uses auth user metadata to:
+- create or update a `profiles` row
+- attach staff users to `staff_roles`
+- create or update a `providers` row for provider users
+- create or update a `patients` row for patient users
 
-### messages
-Individual secure messages.
-- id
-- organization_id
-- conversation_id
-- sender_user_id
-- body
-- sent_at
-- created_at
+`scripts/seed-demo.ts` creates these demo auth users:
+- `admin@luma.health`
+- `provider@luma.health`
+- `care@luma.health`
+- `patient@luma.health`
 
-### documents
-Uploaded files and generated documents.
-- id
-- organization_id
-- patient_profile_id
-- encounter_id
-- storage_path
-- document_type
-- uploaded_by
-- created_at
+Until the migration is applied, the application uses the local fallback dataset in `data/runtime/demo-db.json` for clinical, scheduling, messaging, reporting, and audit log flows.
 
-### consents
-Consent versioning and signature tracking.
-- id
-- organization_id
-- patient_profile_id
-- consent_type
-- version
-- status
-- signed_at
-- document_id
-- created_at
-- updated_at
+## Manual Apply Runbook
+Use one of these paths to apply the migration:
+1. Link the Supabase project locally and run the migration through the Supabase CLI.
+2. Provide a direct Postgres connection string and execute the SQL against the project database.
+3. Paste the migration into the Supabase SQL editor and run it manually.
 
-### audit_logs
-Append-only record of sensitive actions.
-- id
-- organization_id
-- actor_user_id
-- entity_type
-- entity_id
-- action
-- metadata_json
-- created_at
-
-## Initial RLS Strategy
-- users read records only for organizations they belong to
-- patients read only their own allowed records
-- providers access assigned and org-authorized records
-- writes for sensitive operations route through validated server-side actions
-- all clinical and messaging access is tenant-scoped
-
-## Migration Policy
-All schema changes go in:
-`supabase/migrations/YYYYMMDDHHMMSS_name.sql`
-
-Every migration must also update this file with:
-- tables changed
-- policies added or changed
-- backfill notes if applicable
-
-## Migration Backlog
-1. foundation_organizations_memberships
-2. patient_and_provider_profiles
-3. scheduling_tables
-4. encounters_and_notes
-5. messaging_tables
-6. documents_and_consents
-7. audit_logs
+After that:
+1. Verify all tables exist.
+2. Verify RLS is enabled.
+3. Verify `on_auth_user_synced` exists.
+4. Extend `scripts/seed-demo.ts` to insert relational demo records that match the local fallback dataset.
